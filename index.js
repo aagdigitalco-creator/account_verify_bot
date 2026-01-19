@@ -1,43 +1,39 @@
 const TelegramBot = require('node-telegram-bot-api');
 
 const token = process.env.BOT_TOKEN;
-const ADMIN_ID = 123456789; // <-- PUT YOUR TELEGRAM ID HERE
+const ADMIN_ID = 123456789; // PUT YOUR TELEGRAM ID
 
 const bot = new TelegramBot(token, { polling: true });
 
-// STORAGE
 const users = {};
 const lockedUsers = new Set();
 const pendingApproval = {};
 
-// ---------------- START ----------------
+// ---------- START ----------
 bot.onText(/\/start/, (msg) => {
   const id = msg.from.id;
-  const chat = msg.chat.id;
 
   if (lockedUsers.has(id)) {
-    bot.sendMessage(chat, "❌ You have already applied.");
+    bot.sendMessage(msg.chat.id, "❌ You have already completed this task.");
     return;
   }
 
-  users[id] = { step: 'account_name' };
+  users[id] = { step: "account_name" };
   lockedUsers.add(id);
 
-  bot.sendMessage(chat, "Enter the ACCOUNT NAME you will use to post the review:");
+  bot.sendMessage(msg.chat.id, "Enter the ACCOUNT NAME you will use to post the review:");
 });
 
-// ---------------- TEXT HANDLER ----------------
-bot.on('message', (msg) => {
+// ---------- TEXT ----------
+bot.on("message", (msg) => {
   const id = msg.from.id;
-  const chat = msg.chat.id;
-
   if (!users[id]) return;
 
-  if (users[id].step === 'account_name' && msg.text) {
+  if (users[id].step === "account_name" && msg.text) {
     users[id].accountName = msg.text;
-    users[id].step = 'logo_check';
+    users[id].step = "logo_check";
 
-    bot.sendMessage(chat, "Does this account have a logo?", {
+    bot.sendMessage(msg.chat.id, "Does this account have a logo?", {
       reply_markup: {
         inline_keyboard: [
           [{ text: "Yes", callback_data: "logo_yes" }],
@@ -48,118 +44,118 @@ bot.on('message', (msg) => {
   }
 });
 
-// ---------------- CALLBACK HANDLER ----------------
-bot.on('callback_query', (query) => {
+// ---------- CALLBACK ----------
+bot.on("callback_query", (query) => {
   const id = query.from.id;
-  const chat = query.message.chat.id;
 
-  // LOGO YES
-  if (query.data === 'logo_yes') {
+  if (query.data === "logo_yes") {
     users[id].hasLogo = true;
-    users[id].step = 'logo_upload';
-    bot.sendMessage(chat, "Upload the LOGO image.");
+    users[id].step = "logo_upload";
+    bot.sendMessage(id, "Upload the LOGO image.");
   }
 
-  // LOGO NO
-  if (query.data === 'logo_no') {
+  if (query.data === "logo_no") {
     users[id].hasLogo = false;
     sendToAdmin(id);
-    bot.sendMessage(chat, "⏳ Waiting for admin approval...");
+    bot.sendMessage(id, "⏳ Waiting for admin approval...");
   }
 
-  // ADMIN APPROVE ACCOUNT
-  if (query.data.startsWith('approve_') && query.from.id === ADMIN_ID) {
-    const userId = query.data.split('_')[1];
-
+  if (query.data.startsWith("approve_") && id === ADMIN_ID) {
+    const userId = query.data.split("_")[1];
     users[userId].step = "awaiting_screenshot";
 
     bot.sendMessage(
       userId,
-      "✅ Approved!\n\n" +
-      "👉 Go to this Google Maps page and post a review:\n" +
+      "✅ Approved!\n\n👉 Leave a Google Maps review here:\n" +
       "https://maps.app.goo.gl/vgQ2xvfdKRxEJaBD7\n\n" +
-      "📸 After posting, send a screenshot as proof."
+      "📸 Send screenshot after posting."
     );
 
     delete pendingApproval[userId];
   }
 
-  // ADMIN REJECT ACCOUNT
-  if (query.data.startsWith('reject_') && query.from.id === ADMIN_ID) {
-    const userId = query.data.split('_')[1];
-    bot.sendMessage(userId, "❌ Rejected. You are not eligible.");
+  if (query.data.startsWith("reject_") && id === ADMIN_ID) {
+    const userId = query.data.split("_")[1];
+    bot.sendMessage(userId, "❌ Rejected.");
     delete pendingApproval[userId];
   }
 
-  // ADMIN CONFIRM REVIEW SCREENSHOT
-  if (query.data.startsWith('confirm_review_') && query.from.id === ADMIN_ID) {
-    const userId = query.data.split('_')[2];
-
-    bot.sendMessage(
-      userId,
-      "✅ Review verified.\n\nPlease wait for payment instructions."
-    );
-
-    users[userId].step = "review_done";
+  if (query.data.startsWith("confirm_review_") && id === ADMIN_ID) {
+    const userId = query.data.split("_")[2];
+    users[userId].step = "awaiting_qr";
+    bot.sendMessage(userId, "✅ Review verified.\n\nSend your UPI QR code.");
   }
 
-  // ADMIN REJECT REVIEW SCREENSHOT
-  if (query.data.startsWith('reject_review_') && query.from.id === ADMIN_ID) {
-    const userId = query.data.split('_')[2];
-
-    bot.sendMessage(
-      userId,
-      "❌ Screenshot rejected. Please send a valid review proof."
-    );
-
+  if (query.data.startsWith("reject_review_") && id === ADMIN_ID) {
+    const userId = query.data.split("_")[2];
     users[userId].step = "awaiting_screenshot";
+    bot.sendMessage(userId, "❌ Screenshot rejected. Send valid proof.");
+  }
+
+  if (query.data.startsWith("payment_done_") && id === ADMIN_ID) {
+    const userId = query.data.split("_")[2];
+    users[userId].step = "completed";
+    bot.sendMessage(userId, "💰 Payment sent! Thank you.");
   }
 });
 
-// ---------------- PHOTO HANDLER ----------------
-bot.on('photo', (msg) => {
+// ---------- PHOTO ----------
+bot.on("photo", (msg) => {
   const id = msg.from.id;
 
-  // LOGO UPLOAD
-  if (users[id] && users[id].step === 'logo_upload') {
+  // LOGO
+  if (users[id] && users[id].step === "logo_upload") {
     users[id].logo = msg.photo[msg.photo.length - 1].file_id;
     sendToAdmin(id);
-    bot.sendMessage(msg.chat.id, "⏳ Waiting for admin approval...");
+    bot.sendMessage(id, "⏳ Waiting for admin approval...");
     return;
   }
 
   // REVIEW SCREENSHOT
-  if (users[id] && users[id].step === 'awaiting_screenshot') {
-    const screenshot = msg.photo[msg.photo.length - 1].file_id;
+  if (users[id] && users[id].step === "awaiting_screenshot") {
+    const shot = msg.photo[msg.photo.length - 1].file_id;
 
-    bot.sendPhoto(
-      ADMIN_ID,
-      screenshot,
-      {
-        caption: `📸 REVIEW PROOF\nUser: ${users[id].accountName}\nID: ${id}`,
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: "✅ Confirm", callback_data: `confirm_review_${id}` },
-              { text: "❌ Reject", callback_data: `reject_review_${id}` }
-            ]
+    bot.sendPhoto(ADMIN_ID, shot, {
+      caption: `📸 REVIEW PROOF\n${users[id].accountName}\nID: ${id}`,
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: "✅ Confirm", callback_data: `confirm_review_${id}` },
+            { text: "❌ Reject", callback_data: `reject_review_${id}` }
           ]
-        }
+        ]
       }
-    );
+    });
 
     bot.sendMessage(id, "⏳ Screenshot sent for verification.");
+    return;
+  }
+
+  // QR CODE
+  if (users[id] && users[id].step === "awaiting_qr") {
+    const qr = msg.photo[msg.photo.length - 1].file_id;
+
+    bot.sendPhoto(ADMIN_ID, qr, {
+      caption: `💳 UPI QR\nUser: ${users[id].accountName}\nID: ${id}`,
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "💰 Mark Paid", callback_data: `payment_done_${id}` }]
+        ]
+      }
+    });
+
+    bot.sendMessage(id, "⏳ Payment in process.");
   }
 });
 
-// ---------------- SEND TO ADMIN ----------------
+// ---------- ADMIN SEND ----------
 function sendToAdmin(userId) {
   const u = users[userId];
   pendingApproval[userId] = u;
 
   bot.sendMessage(
     ADMIN_ID,
-    `📝 NEW REVIEW REQUEST\n\nAccount Name: ${u.accountName}\nLogo: ${u.hasLogo ? "Yes" : "No"}`,
+    `📝 NEW REQUEST\nAccount: ${u.accountName}\nLogo: ${u.hasLogo ? "Yes" : "No"}`,
     {
       reply_markup: {
         inline_keyboard: [
@@ -175,4 +171,4 @@ function sendToAdmin(userId) {
   if (u.logo) bot.sendPhoto(ADMIN_ID, u.logo);
 }
 
-console.log("Bot running — review + screenshot flow active");
+console.log("LIVE: Full review → payment flow running");
