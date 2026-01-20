@@ -5,78 +5,46 @@ const ADMIN_ID = 6255035187;
 
 const users = {};
 let rejectTarget = null;
+let rejectStage = null;
 let paymentTarget = null;
 
-// ---------- RANDOM REVIEW ENGINE ----------
+// ---------- RANDOM REVIEW ----------
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 const chance = (p) => Math.random() * 100 < p;
 
 function generateRandomReview() {
-  const openings = [
-    "Amazing experience",
-    "Really impressed",
-    "Super satisfied",
-    "Booked recently",
-    "Did not expect this quality",
-    "Car looks brand new"
-  ];
+  const o = ["Amazing experience", "Really impressed", "Super satisfied", "Booked recently", "Car looks brand new"];
+  const s = ["mobile car detailing", "interior and exterior detailing", "professional car detailing"];
+  const q = ["attention to detail was excellent", "work was very professional", "finish was spotless"];
+  const e = ["Highly recommended.", "Will book again.", "Five stars.", "Worth it."];
+  const streets = ["Main Street", "Kingsway", "Broadway", "Granville Street"];
 
-  const services = [
-    "mobile car detailing",
-    "interior and exterior detailing",
-    "professional car detailing",
-    "full detailing service"
-  ];
+  let loc = "";
+  if (chance(20)) loc = " in Vancouver";
+  else if (chance(40)) loc = ` near ${pick(streets)}`;
 
-  const qualities = [
-    "attention to detail was excellent",
-    "work was extremely professional",
-    "finish was spotless",
-    "results were impressive",
-    "everything was cleaned perfectly"
-  ];
-
-  const endings = [
-    "Highly recommended.",
-    "Would book again.",
-    "Five stars.",
-    "Worth every dollar.",
-    "Very happy."
-  ];
-
-  const streets = [
-    "Main Street",
-    "Kingsway",
-    "Granville Street",
-    "Broadway",
-    "Cambie Street",
-    "Commercial Drive"
-  ];
-
-  let location = "";
-  if (chance(20)) location = " in Vancouver";
-  else if (chance(40)) location = ` near ${pick(streets)}`;
-
-  return `${pick(openings)} with their ${pick(services)}${location}. The ${pick(qualities)}. ${pick(endings)}`;
+  return `${pick(o)} with their ${pick(s)}${loc}. The ${pick(q)}. ${pick(e)}`;
 }
 
 // ---------- /WAKE ----------
 bot.onText(/\/wake/, (msg) => {
   users[msg.from.id] = { step: "account_name" };
-  bot.sendMessage(msg.chat.id, "Enter the ACCOUNT NAME you will use to post the review:");
+  bot.sendMessage(msg.chat.id, "Enter the ACCOUNT NAME you will use for the review:");
 });
 
 // ---------- TEXT ----------
 bot.on("message", (msg) => {
   const id = msg.from.id;
-  if (!users[id] || !msg.text) return;
 
-  // Admin rejection reason
-  if (id === ADMIN_ID && rejectTarget) {
+  // Admin writing rejection reason
+  if (id === ADMIN_ID && rejectTarget && rejectStage) {
     bot.sendMessage(rejectTarget, `❌ Rejected\nReason:\n${msg.text}`);
     rejectTarget = null;
+    rejectStage = null;
     return;
   }
+
+  if (!users[id] || !msg.text) return;
 
   if (users[id].step === "account_name") {
     users[id].reviewAccount = msg.text;
@@ -96,43 +64,73 @@ bot.on("message", (msg) => {
 // ---------- CALLBACK ----------
 bot.on("callback_query", (q) => {
   const id = q.from.id;
-  if (!users[id] && id !== ADMIN_ID) return;
+  const data = q.data;
 
-  if (q.data === "logo_yes") {
+  // USER
+  if (data === "logo_yes") {
     users[id].hasLogo = true;
     users[id].step = "logo_upload";
     bot.sendMessage(id, "Upload the LOGO image.");
   }
 
-  if (q.data === "logo_no") {
+  if (data === "logo_no") {
     users[id].hasLogo = false;
     sendToAdmin(id);
     bot.sendMessage(id, "⏳ Waiting for admin approval...");
   }
 
-  if (q.data.startsWith("approve_") && id === ADMIN_ID) {
-    const uid = q.data.split("_")[1];
+  // ADMIN APPROVE ACCOUNT
+  if (data.startsWith("approve_account_") && id === ADMIN_ID) {
+    const uid = data.split("_")[2];
     users[uid].step = "awaiting_review";
 
     bot.sendMessage(
       uid,
-      `✅ Approved!\n\nReview this page:\nhttps://maps.app.goo.gl/vgQ2xvfdKRxEJaBD7\n\nCopy & paste review:\n\n"${generateRandomReview()}"\n\n📸 Send screenshot after posting.`
+      `✅ Approved!\n\nReview page:\nhttps://maps.app.goo.gl/vgQ2xvfdKRxEJaBD7\n\nCopy review:\n\n"${generateRandomReview()}"\n\n📸 Send screenshot after posting.`
     );
   }
 
-  if (q.data.startsWith("reject_") && id === ADMIN_ID) {
-    rejectTarget = q.data.split("_")[1];
-    bot.sendMessage(ADMIN_ID, "✍ Type rejection reason:");
+  // ADMIN REJECT ACCOUNT
+  if (data.startsWith("reject_account_") && id === ADMIN_ID) {
+    rejectTarget = data.split("_")[2];
+    rejectStage = "account";
+    bot.sendMessage(ADMIN_ID, "✍ Type rejection reason (or type /skip):");
   }
 
-  if (q.data.startsWith("confirm_review_") && id === ADMIN_ID) {
-    const uid = q.data.split("_")[2];
+  // ADMIN REVIEW CONFIRM
+  if (data.startsWith("approve_review_") && id === ADMIN_ID) {
+    const uid = data.split("_")[2];
     users[uid].step = "awaiting_qr";
     bot.sendMessage(uid, "✅ Review verified. Send your QR code.");
   }
 
-  if (q.data.startsWith("mark_paid_") && id === ADMIN_ID) {
-    paymentTarget = q.data.split("_")[2];
+  // ADMIN REVIEW REJECT OPTIONS
+  if (data.startsWith("reject_review_") && id === ADMIN_ID) {
+    const uid = data.split("_")[2];
+    bot.sendMessage(ADMIN_ID, "Choose rejection type:", {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "❌ Reject (no reason)", callback_data: `reject_review_silent_${uid}` }],
+          [{ text: "✍ Reject with reason", callback_data: `reject_review_reason_${uid}` }]
+        ]
+      }
+    });
+  }
+
+  if (data.startsWith("reject_review_silent_") && id === ADMIN_ID) {
+    const uid = data.split("_")[3];
+    bot.sendMessage(uid, "❌ Review rejected. Please try again.");
+  }
+
+  if (data.startsWith("reject_review_reason_") && id === ADMIN_ID) {
+    rejectTarget = data.split("_")[3];
+    rejectStage = "review";
+    bot.sendMessage(ADMIN_ID, "✍ Type rejection reason:");
+  }
+
+  // ADMIN MARK PAID
+  if (data.startsWith("mark_paid_") && id === ADMIN_ID) {
+    paymentTarget = data.split("_")[2];
     bot.sendMessage(ADMIN_ID, "📸 Upload payment screenshot.");
   }
 });
@@ -140,27 +138,31 @@ bot.on("callback_query", (q) => {
 // ---------- PHOTO ----------
 bot.on("photo", (msg) => {
   const id = msg.from.id;
-  if (!users[id]) return;
-
   const fileId = msg.photo.at(-1).file_id;
 
-  if (users[id].step === "logo_upload") {
+  // USER LOGO
+  if (users[id]?.step === "logo_upload") {
     sendToAdmin(id, fileId);
     bot.sendMessage(id, "⏳ Waiting for admin approval...");
   }
 
-  if (users[id].step === "awaiting_review") {
+  // USER REVIEW PROOF
+  if (users[id]?.step === "awaiting_review") {
     bot.sendPhoto(ADMIN_ID, fileId, {
       caption: `📸 REVIEW PROOF\nUser ID: ${id}`,
       reply_markup: {
         inline_keyboard: [
-          [{ text: "✅ Confirm", callback_data: `confirm_review_${id}` }]
+          [
+            { text: "✅ Approve", callback_data: `approve_review_${id}` },
+            { text: "❌ Reject", callback_data: `reject_review_${id}` }
+          ]
         ]
       }
     });
   }
 
-  if (users[id].step === "awaiting_qr") {
+  // USER QR
+  if (users[id]?.step === "awaiting_qr") {
     bot.sendPhoto(ADMIN_ID, fileId, {
       caption: `💳 QR CODE\nUser ID: ${id}`,
       reply_markup: {
@@ -171,15 +173,16 @@ bot.on("photo", (msg) => {
     });
   }
 
+  // ADMIN PAYMENT PROOF
   if (id === ADMIN_ID && paymentTarget) {
     bot.sendPhoto(paymentTarget, fileId, {
-      caption: "💰 Payment confirmation"
+      caption: "💰 Payment proof"
     });
     paymentTarget = null;
   }
 });
 
-// ---------- ADMIN ----------
+// ---------- ADMIN SEND ----------
 function sendToAdmin(uid, logo = null) {
   bot.sendMessage(
     ADMIN_ID,
@@ -188,8 +191,8 @@ function sendToAdmin(uid, logo = null) {
       reply_markup: {
         inline_keyboard: [
           [
-            { text: "✅ Approve", callback_data: `approve_${uid}` },
-            { text: "❌ Reject", callback_data: `reject_${uid}` }
+            { text: "✅ Approve", callback_data: `approve_account_${uid}` },
+            { text: "❌ Reject", callback_data: `reject_account_${uid}` }
           ]
         ]
       }
@@ -198,4 +201,4 @@ function sendToAdmin(uid, logo = null) {
   if (logo) bot.sendPhoto(ADMIN_ID, logo);
 }
 
-console.log("BOT LIVE — use /wake");
+console.log("BOT LIVE");
