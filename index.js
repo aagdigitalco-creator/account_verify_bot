@@ -19,7 +19,8 @@ function generateRandomReview() {
     "Really impressed",
     "Super happy with the service",
     "Booked them recently",
-    "My car looks brand new"
+    "My car looks brand new",
+    "Did not expect this level of quality"
   ];
 
   const services = [
@@ -68,13 +69,23 @@ function generateRandomReview() {
 // ---------- START ----------
 bot.onText(/\/start/, (msg) => {
   const id = msg.from.id;
-  if (lockedUsers.has(id)) {
-    bot.sendMessage(id, "❌ You already completed this task.");
+
+  // ADMIN CAN ALWAYS RESTART
+  if (id === ADMIN_ID) {
+    users[id] = { step: "account_name" };
+    bot.sendMessage(id, "🛠 ADMIN TEST MODE\nEnter ACCOUNT NAME:");
     return;
   }
-  users[id] = { step: "account_name" };
+
+  // NORMAL USERS (ONE TIME)
+  if (lockedUsers.has(id)) {
+    bot.sendMessage(id, "❌ You have already completed this task.");
+    return;
+  }
+
   lockedUsers.add(id);
-  bot.sendMessage(id, "Enter the ACCOUNT NAME you’ll use to post the review:");
+  users[id] = { step: "account_name" };
+  bot.sendMessage(id, "Enter the ACCOUNT NAME for review:");
 });
 
 // ---------- TEXT ----------
@@ -133,14 +144,13 @@ bot.on("callback_query", (q) => {
   if (q.data.startsWith("confirm_review_") && id === ADMIN_ID) {
     const userId = q.data.split("_")[2];
     users[userId].step = "awaiting_qr";
-    bot.sendMessage(userId, "✅ Review verified.\n\nSend your UPI QR code.");
+    bot.sendMessage(userId, "✅ Review verified.\nSend your QR code.");
   }
 
   if (q.data.startsWith("mark_paid_") && id === ADMIN_ID) {
     const userId = q.data.split("_")[2];
-    users[userId].step = "awaiting_payment_proof";
-    bot.sendMessage(ADMIN_ID, "📸 Upload payment screenshot to send user.");
     users.paymentTarget = userId;
+    bot.sendMessage(ADMIN_ID, "📸 Upload payment screenshot.");
   }
 });
 
@@ -155,19 +165,19 @@ bot.on("photo", (msg) => {
 
   if (users[id]?.step === "awaiting_review") {
     bot.sendPhoto(ADMIN_ID, msg.photo.at(-1).file_id, {
-      caption: `📸 REVIEW PROOF\n${users[id].accountName}\nID:${id}`,
+      caption: `📸 REVIEW PROOF\nID:${id}`,
       reply_markup: {
         inline_keyboard: [
           [{ text: "✅ Confirm", callback_data: `confirm_review_${id}` }]
         ]
       }
     });
-    bot.sendMessage(id, "⏳ Screenshot sent for verification.");
+    bot.sendMessage(id, "⏳ Screenshot sent.");
   }
 
   if (users[id]?.step === "awaiting_qr") {
     bot.sendPhoto(ADMIN_ID, msg.photo.at(-1).file_id, {
-      caption: `💳 UPI QR\n${users[id].accountName}\nID:${id}`,
+      caption: `💳 QR CODE\nID:${id}`,
       reply_markup: {
         inline_keyboard: [
           [{ text: "💰 Mark Paid", callback_data: `mark_paid_${id}` }]
@@ -181,7 +191,7 @@ bot.on("photo", (msg) => {
     bot.sendPhoto(users.paymentTarget, msg.photo.at(-1).file_id, {
       caption: "💰 Payment confirmation"
     });
-    bot.sendMessage(users.paymentTarget, "✅ Payment completed. Thank you.");
+    bot.sendMessage(users.paymentTarget, "✅ Payment completed.");
     users.paymentTarget = null;
   }
 });
@@ -202,4 +212,4 @@ function sendToAdmin(userId, logo = null) {
   if (logo) bot.sendPhoto(ADMIN_ID, logo);
 }
 
-console.log("BOT FULLY LIVE");
+console.log("BOT LIVE — ADMIN CAN RETEST UNLIMITED");
