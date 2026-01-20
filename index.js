@@ -8,9 +8,14 @@ let rejectTarget = null;
 let rejectStage = null;
 let paymentTarget = null;
 
-// ---------- RANDOM REVIEW ----------
+// ---------- HELPERS ----------
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 const chance = (p) => Math.random() * 100 < p;
+
+function resetUser(uid) {
+  users[uid] = { step: "account_name" };
+  bot.sendMessage(uid, "🔄 Let’s try again.\n\nEnter the ACCOUNT NAME you will use for the review:");
+}
 
 function generateRandomReview() {
   const o = ["Amazing experience", "Really impressed", "Super satisfied", "Booked recently", "Car looks brand new"];
@@ -28,17 +33,19 @@ function generateRandomReview() {
 
 // ---------- /WAKE ----------
 bot.onText(/\/wake/, (msg) => {
-  users[msg.from.id] = { step: "account_name" };
-  bot.sendMessage(msg.chat.id, "Enter the ACCOUNT NAME you will use for the review:");
+  resetUser(msg.from.id);
 });
 
 // ---------- TEXT ----------
 bot.on("message", (msg) => {
   const id = msg.from.id;
 
-  // Admin writing rejection reason
   if (id === ADMIN_ID && rejectTarget && rejectStage) {
-    bot.sendMessage(rejectTarget, `❌ Rejected\nReason:\n${msg.text}`);
+    bot.sendMessage(rejectTarget, `❌ Rejected\nReason:\n${msg.text}`, {
+      reply_markup: {
+        inline_keyboard: [[{ text: "🔄 Try Again", callback_data: "retry" }]]
+      }
+    });
     rejectTarget = null;
     rejectStage = null;
     return;
@@ -66,7 +73,12 @@ bot.on("callback_query", (q) => {
   const id = q.from.id;
   const data = q.data;
 
-  // USER
+  if (data === "retry") {
+    resetUser(id);
+    return;
+  }
+
+  // USER FLOW
   if (data === "logo_yes") {
     users[id].hasLogo = true;
     users[id].step = "logo_upload";
@@ -94,7 +106,7 @@ bot.on("callback_query", (q) => {
   if (data.startsWith("reject_account_") && id === ADMIN_ID) {
     rejectTarget = data.split("_")[2];
     rejectStage = "account";
-    bot.sendMessage(ADMIN_ID, "✍ Type rejection reason (or type /skip):");
+    bot.sendMessage(ADMIN_ID, "✍ Type rejection reason:");
   }
 
   // ADMIN REVIEW CONFIRM
@@ -119,7 +131,11 @@ bot.on("callback_query", (q) => {
 
   if (data.startsWith("reject_review_silent_") && id === ADMIN_ID) {
     const uid = data.split("_")[3];
-    bot.sendMessage(uid, "❌ Review rejected. Please try again.");
+    bot.sendMessage(uid, "❌ Review rejected.", {
+      reply_markup: {
+        inline_keyboard: [[{ text: "🔄 Try Again", callback_data: "retry" }]]
+      }
+    });
   }
 
   if (data.startsWith("reject_review_reason_") && id === ADMIN_ID) {
@@ -140,13 +156,11 @@ bot.on("photo", (msg) => {
   const id = msg.from.id;
   const fileId = msg.photo.at(-1).file_id;
 
-  // USER LOGO
   if (users[id]?.step === "logo_upload") {
     sendToAdmin(id, fileId);
     bot.sendMessage(id, "⏳ Waiting for admin approval...");
   }
 
-  // USER REVIEW PROOF
   if (users[id]?.step === "awaiting_review") {
     bot.sendPhoto(ADMIN_ID, fileId, {
       caption: `📸 REVIEW PROOF\nUser ID: ${id}`,
@@ -161,23 +175,17 @@ bot.on("photo", (msg) => {
     });
   }
 
-  // USER QR
   if (users[id]?.step === "awaiting_qr") {
     bot.sendPhoto(ADMIN_ID, fileId, {
       caption: `💳 QR CODE\nUser ID: ${id}`,
       reply_markup: {
-        inline_keyboard: [
-          [{ text: "💰 Mark Paid", callback_data: `mark_paid_${id}` }]
-        ]
+        inline_keyboard: [[{ text: "💰 Mark Paid", callback_data: `mark_paid_${id}` }]]
       }
     });
   }
 
-  // ADMIN PAYMENT PROOF
   if (id === ADMIN_ID && paymentTarget) {
-    bot.sendPhoto(paymentTarget, fileId, {
-      caption: "💰 Payment proof"
-    });
+    bot.sendPhoto(paymentTarget, fileId, { caption: "💰 Payment proof" });
     paymentTarget = null;
   }
 });
